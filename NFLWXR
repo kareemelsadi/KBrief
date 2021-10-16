@@ -1,0 +1,232 @@
+import mechanicalsoup
+from bs4 import BeautifulSoup
+from bs4 import Comment
+import pandas as pd
+
+browser = mechanicalsoup.StatefulBrowser()
+
+browser.open("https://www.pro-football-reference.com/years/2018/games.htm")
+
+main_page = browser.get_current_page()
+data = main_page.findAll("tr")
+print(len(data))
+
+root_url="https://www.pro-football-reference.com"
+
+
+stadium_list=[]
+
+date_list=[]
+
+roof_list=[]
+
+total_rush_td=[]
+
+total_pass_td=[]
+
+total_points=[]
+
+start_time=[]
+
+wind_speed=[]
+
+browser2=mechanicalsoup.StatefulBrowser()
+
+for i in range(len(data)):
+    try:
+        box_score_tag = data[i].find("td",{"data-stat":"boxscore_word"}) #Finds the path for the boxscore page of interest
+        box_score_link = root_url+box_score_tag.a.get("href") #Creates a full URL using the Root URL Domain we created earlier
+        browser2.open(box_score_link) #Opens browser 2 and sends it to the site we named above
+        boxscorepage=browser2.get_current_page() #initializes a variable to this page so we can do stuff with it.
+       
+        #getting the date of the game.
+        date=boxscorepage.find("div",{"class":"scorebox_meta"}) #find("name of tag", {CSS class for tag:Expression})
+        date=date.div.contents[0] #Extract the date from the expression above
+        date_list.append(date) #append the date to the Dat_List Matrix
+        
+        #getting time
+        times=boxscorepage.find("div",{"class":"scorebox_meta"})
+        scoreboxdata=[]
+        for each in times:
+            scoreboxdata.append(each)
+        game_start=scoreboxdata[2].contents[1] #Identify which element of scoreboxdata contains start and endtime
+        game_start=game_start[2:]
+        start_time.append(game_start) #Capture start times for each game in an array
+        
+       
+        #getting stadium
+        stadium=boxscorepage.find("div",{"class":"scorebox_meta"})
+        stadium=stadium.a.contents[0]
+        stadium_list.append(stadium)
+              
+        #getting roof status
+        comments = boxscorepage.find_all(string=lambda text: isinstance(text, Comment)) #Roof Status captured as a CSS Comment
+        tables=[]
+        for each in comments:
+            if "table" in each:
+                try:
+                    tables.append(pd.read_html(each)[0])
+                except:
+                    continue
+
+        roof_list.append(tables[1].loc[2,1])
+        
+        #getting total rush TD
+        for each in comments:
+            if "table" in each:
+                try:
+                    tables.append(pd.read_html(each)[0])
+                except:
+                    continue
+
+        gameinfo=tables[4]
+        rush_stat1=gameinfo.iloc[1,1]
+        rush_td_1=rush_stat1[rush_stat1.rindex('-')+1:]
+
+        rush_stat2=gameinfo.iloc[1,2]
+        rush_td_2=rush_stat2[rush_stat2.rindex('-')+1:]
+        
+        total_rush_td.append(int(rush_td_1)+int(rush_td_2))
+        
+        #getting total pass TD
+        for each in comments:
+            if "table" in each:
+                try:
+                    tables.append(pd.read_html(each)[0])
+                except:
+                    continue
+
+        gameinfo=tables[4]
+        pass_stat1=gameinfo.iloc[2,1]
+        pass_td_1=pass_stat1.split("-")[3]
+
+        pass_stat2=gameinfo.iloc[2,2]
+        pass_td_2=pass_stat2.split("-")[3]
+        total_pass_td.append(int(pass_td_1)+int(pass_td_2))
+        
+        #getting total points
+        totalscores=boxscorepage.find_all("div",{"class":"scores"})
+        scores=[]
+        for i in range(len(totalscores)):
+            score1=totalscores[i].div.contents[0]
+            scores.append(score1)
+        total_points.append(sum(map(int,scores)))
+        
+        #getting wind speeds
+        comments = boxscorepage.find_all(string=lambda text: isinstance(text, Comment))
+        tables=[]
+        for each in comments:
+            if "table" in each:
+                try:
+                    tables.append(pd.read_html(each)[0])
+                except:
+                    continue
+        if "Weather" in tables[1].loc[6,0]:
+            wind_speed.append(tables[1].loc[6,1].split()[3])
+        else:
+            wind_speed.append("")      
+        
+    except:
+        pass
+    
+print(date_list)
+print(start_time)
+print(zip_code)
+print(roof_list)
+print(total_rush_td)
+print(total_pass_td)
+print(total_points)
+print(wind_speed)
+
+
+rush_ratio=[]
+for i in range(len(total_rush_td)):
+    if (int(total_pass_td[i])+int(total_rush_td[i]))==0:
+        rush_ratio.append(0)
+    else:
+        rushratio = int(total_rush_td[i])/(int(total_pass_td[i]+total_rush_td[i]))
+        rush_ratio.append(rushratio)
+
+# dictionary of lists   
+dict = {'dates': date_list, 'starttimes': start_time,
+        'roofstatus':roof_list, 'rushtds':total_rush_td, 'passtds':total_pass_td,
+       'points':total_points,'windspeeds':wind_speed,'rushratios':rush_ratio}   
+       
+df = pd.DataFrame(dict)  
+    
+# saving the dataframe  
+df.to_csv('NFLData.csv') 
+
+#Formatting the dataFrame view
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+pd.set_option('display.max_colwidth', None)
+
+#read csv contents to dataframe
+raw_data=pd.read_csv("NFLData.csv")
+print(raw_data.iloc[:,[2,3,4,5,6,7]]) #printing specific columns to avoid column truncation
+
+
+raw_data['windspeeds']=raw_data['windspeeds'].fillna(0) #Replaces NaN with 0
+raw_data['windspeeds']=raw_data['windspeeds'].replace('wind',0)
+
+print(raw_data.iloc[:,[2,3,4,5,6,7]]) 
+
+raw_data["rushratios"]=raw_data["rushratios"].astype(float)
+raw_data["windspeeds"]=raw_data["windspeeds"].astype(float)
+raw_data["passtds"]=raw_data["passtds"].astype(float)
+raw_data["rushtds"]=raw_data["rushtds"].astype(float)
+raw_data["points"]=raw_data["points"].astype(float)
+
+import numpy as np #Routines to create a regression, like polyfit
+import matplotlib.pyplot as plt #Plotter
+
+m1, b1=np.polyfit(raw_data['windspeeds'],raw_data['points'],1)
+print(m1)
+print(b1)
+plt.figure(1)
+plt.plot(raw_data['windspeeds'],raw_data['points'],'o')
+plt.plot(raw_data['windspeeds'], m1*raw_data['windspeeds']+b1)
+plt.xlabel("Wind Speed")
+plt.ylabel("Total Points")
+plt.show()
+
+m2, b2=np.polyfit(raw_data['windspeeds'],raw_data['rushratios'],1)
+plt.figure(2)
+plt.plot(raw_data['windspeeds'],raw_data['rushratios'],'o')
+plt.plot(raw_data['windspeeds'], m2*raw_data['windspeeds']+b2)
+plt.xlabel("Wind Speed")
+plt.ylabel("Rushing Touchdowns / Total Points")
+plt.show()
+
+m3, b3=np.polyfit(raw_data['windspeeds'],raw_data['passtds'],1)
+plt.figure(3)
+plt.plot(raw_data['windspeeds'],raw_data['passtds'],'o')
+plt.plot(raw_data['windspeeds'], m3*raw_data['windspeeds']+b3)
+plt.xlabel("Wind Speed")
+plt.ylabel("Passing Touchdowns")
+plt.show()
+
+m4, b4=np.polyfit(raw_data['windspeeds'],raw_data['rushtds'],1)
+plt.figure(4)
+plt.plot(raw_data['windspeeds'],raw_data['rushtds'],'o')
+plt.plot(raw_data['windspeeds'], m4*raw_data['windspeeds']+b4)
+plt.xlabel("Wind Speed")
+plt.ylabel("Rushing Touchdowns")
+plt.show()
+
+
+
+
+import statsmodels.api as sm
+# with statsmodels
+X=raw_data_nan["windspeeds"]
+Y=raw_data_nan["points"]
+X = sm.add_constant(X) # adding a constant
+ 
+model = sm.OLS(Y, X).fit()
+predictions = model.predict(X) 
+ 
+print_model = model.summary()
+print(print_model)
